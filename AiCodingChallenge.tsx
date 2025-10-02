@@ -1,3 +1,6 @@
+// Copyright James Burvel O’Callaghan III
+// President Citibank Demo Business Inc.
+
 openapi: 3.1.0
 info:
   title: AI Coding Challenge Generator API

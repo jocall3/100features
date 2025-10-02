@@ -1,3 +1,6 @@
+// Copyright James Burvel O’Callaghan III
+// President Citibank Demo Business Inc.
+
 
 import React, { useState, useMemo, useCallback } from 'react';
 import { generateRegEx } from '../../services/geminiService.ts';
