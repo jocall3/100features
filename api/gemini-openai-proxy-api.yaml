@@ -1,0 +1,355 @@
+# Copyright James Burvel O’Callaghan III
+# President Citibank Demo Business Inc.
+
+openapi: 3.1.0
+info:
+  title: Gemini OpenAI Proxy API
+  version: 1.0.0
+  description: |
+    An OpenAI-compatible proxy API for interacting with the Google Gemini API,
+    offering advanced chat completions including thinking budget and streaming capabilities.
+    This API allows developers to leverage Gemini's power while maintaining an
+    interface familiar to OpenAI API users.
+
+servers:
+  - url: https://generativelanguage.googleapis.com/v1beta/openai
+    description: Google Gemini API OpenAI-compatible endpoint
+
+paths:
+  /chat/completions:
+    post:
+      summary: Generate chat completions using the Gemini API
+      operationId: createGeminiChatCompletion
+      description: |
+        Sends a chat completion request to the Gemini API, compatible with OpenAI's format.
+        Supports various Gemini models, reasoning effort control, and streaming responses.
+        Authentication requires a `Bearer` token which should be your Gemini API key.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatCompletionRequest'
+            examples:
+              basicCompletion:
+                summary: Basic Chat Completion
+                value:
+                  model: gemini-2.0-flash
+                  messages:
+                    - role: user
+                      content: "Explain to me how AI works"
+              withReasoningEffort:
+                summary: Chat Completion with Reasoning Effort
+                value:
+                  model: gemini-2.5-flash
+                  reasoning_effort: low
+                  messages:
+                    - role: user
+                      content: "Describe the architectural blueprint for a large language model."
+              withThinkingConfig:
+                summary: Chat Completion with Google Thinking Config
+                value:
+                  model: gemini-2.5-flash
+                  messages:
+                    - role: user
+                      content: "Outline the key challenges in scaling AI models."
+                  extra_body:
+                    google:
+                      thinking_config:
+                        include_thoughts: true
+                        # thinking_budget: 1024 # Can be used instead of include_thoughts for exact token control
+              streamingResponse:
+                summary: Streaming Chat Completion
+                value:
+                  model: gemini-2.0-flash
+                  messages:
+                    - role: user
+                      content: "Write a short poem about a cat."
+                  stream: true
+      responses:
+        '200':
+          description: |
+            Successfully generated chat completion response.
+            If `stream: true` was requested, the response will be a `text/event-stream` of chunks.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatCompletionResponse'
+              examples:
+                nonStreamingExample:
+                  summary: Non-Streaming Response Example
+                  value:
+                    id: chatcmpl-randomid123
+                    object: chat.completion
+                    created: 1677652345
+                    model: gemini-2.0-flash
+                    choices:
+                      - index: 0
+                        message:
+                          role: model
+                          content: "Artificial intelligence (AI) works by..."
+                        finish_reason: stop
+                    usage:
+                      prompt_tokens: 12
+                      completion_tokens: 25
+                      total_tokens: 37
+                    thought_summary: "Considered various definitions of AI and synthesized them into a concise explanation."
+            text/event-stream:
+              schema:
+                type: string
+                description: |
+                  Server-sent events for streamed responses. Each event is a JSON object
+                  conforming to a `ChatCompletionChunk` schema (similar to `ChatCompletionResponse`
+                  but with `delta` instead of `message` in choices and `object: chat.completion.chunk`).
+                example: |
+                  data: {"id":"chatcmpl-streamid","object":"chat.completion.chunk","created":1677652345,"model":"gemini-2.0-flash","choices":[{"index":0,"delta":{"content":"Artificial"},"finish_reason":null}]}
+
+                  data: {"id":"chatcmpl-streamid","object":"chat.completion.chunk","created":1677652345,"model":"gemini-2.0-flash","choices":[{"index":0,"delta":{"content":" intelligence"},"finish_reason":null}]}
+
+                  data: {"id":"chatcmpl-streamid","object":"chat.completion.chunk","created":1677652345,"model":"gemini-2.0-flash","choices":[{"index":0,"delta":{"content":" (AI) works"},"finish_reason":null}]}
+
+                  data: {"id":"chatcmpl-streamid","object":"chat.completion.chunk","created":1677652345,"model":"gemini-2.0-flash","choices":[{"index":0,"delta":{"content":" by..."},"finish_reason":null}]}
+
+                  data: {"id":"chatcmpl-streamid","object":"chat.completion.chunk","created":1677652345,"model":"gemini-2.0-flash","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":12,"completion_tokens":25,"total_tokens":37}}
+
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    description: A message detailing the bad request, e.g., conflicting parameters or invalid input.
+                    example: "Error: 'reasoning_effort' and 'thinking_config' cannot be used simultaneously."
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    description: "Authentication error message, e.g., invalid API key."
+                    example: "Unauthorized: Invalid or missing API key."
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    description: "Details about the server-side error or issues with the upstream Gemini API."
+                    example: "Internal Server Error: Gemini API is unresponsive."
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: Gemini API Key
+      description: |
+        Your Google Gemini API Key. Obtainable from Google AI Studio.
+        Prepend with 'Bearer ' for the Authorization header: `Bearer YOUR_GEMINI_API_KEY`.
+
+  schemas:
+    ChatMessage:
+      type: object
+      required:
+        - role
+        - content
+      properties:
+        role:
+          type: string
+          enum: [user, model, system] # 'system' role is supported by some OpenAI-compatible proxies
+          description: The role of the author of this message.
+          example: user
+        content:
+          type: string
+          description: The content of the message.
+          example: "Hello, how are you today?"
+
+    ChatCompletionRequest:
+      type: object
+      required:
+        - model
+        - messages
+      properties:
+        model:
+          type: string
+          enum: [gemini-2.0-flash, gemini-2.5-flash, gemini-2.5-pro]
+          description: The ID of the model to use for the chat completion.
+          example: gemini-2.5-flash
+        messages:
+          type: array
+          description: A list of messages comprising the conversation.
+          items:
+            $ref: '#/components/schemas/ChatMessage'
+        reasoning_effort:
+          type: string
+          enum: [none, low, medium, high]
+          description: |
+            Controls the model's 'thinking budget' for Gemini 2.5 models.
+            'none' disables reasoning (note: not available for 2.5 Pro models).
+            This parameter cannot be used simultaneously with `extra_body.google.thinking_config`.
+          example: low
+          x-conflicts-with: ['extra_body.google.thinking_config'] # Custom extension for clarity
+        extra_body:
+          type: object
+          description: |
+            Additional fields specific to the Gemini API, nested under a 'google' key.
+            This parameter cannot be used simultaneously with `reasoning_effort`.
+          properties:
+            google:
+              type: object
+              properties:
+                thinking_config:
+                  type: object
+                  description: Configuration for Gemini's thinking process.
+                  properties:
+                    include_thoughts:
+                      type: boolean
+                      description: Whether to include thought summaries in the response.
+                      example: true
+                    thinking_budget:
+                      type: integer
+                      format: int32
+                      description: Exact thinking budget in tokens. Overlaps with `reasoning_effort`.
+                      minimum: 0
+                      example: 8192
+          x-conflicts-with: ['reasoning_effort'] # Custom extension for clarity
+        stream:
+          type: boolean
+          description: If true, the API will stream back partial message deltas as server-sent events.
+          default: false
+          example: true
+
+    ChatCompletionResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          description: A unique identifier for the chat completion.
+          example: chatcmpl-randomid123
+        object:
+          type: string
+          enum: [chat.completion] # Fixed for non-streaming response objects
+          description: The object type, which is always `chat.completion` for non-streaming responses.
+          example: chat.completion
+        created:
+          type: integer
+          format: int64
+          description: The Unix timestamp (in seconds) of when the chat completion was created.
+          example: 1677652345
+        model:
+          type: string
+          description: The model used for the completion.
+          example: gemini-2.0-flash
+        choices:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChatCompletionChoice'
+        usage:
+          $ref: '#/components/schemas/UsageStatistics'
+        thought_summary:
+          type: string
+          description: Summary of the model's thoughts if `include_thoughts` was enabled in the request.
+          example: "The model considered options based on key entities and generated a concise explanation."
+
+    ChatCompletionChoice:
+      type: object
+      properties:
+        index:
+          type: integer
+          description: The index of the choice in the list of choices.
+          example: 0
+        message:
+          $ref: '#/components/schemas/ChatMessage'
+          description: A chat completion message generated by the model (for non-streaming responses).
+        finish_reason:
+          type: string
+          enum: [stop, length, content_filter, tool_calls]
+          description: The reason the model stopped generating tokens.
+          example: stop
+
+    ChatCompletionChunk: # Schema for individual chunks in a streaming response
+      type: object
+      properties:
+        id:
+          type: string
+          description: A unique identifier for the chat completion chunk.
+          example: chatcmpl-streamid
+        object:
+          type: string
+          enum: [chat.completion.chunk]
+          description: The object type, which is always `chat.completion.chunk` for streaming responses.
+          example: chat.completion.chunk
+        created:
+          type: integer
+          format: int64
+          description: The Unix timestamp (in seconds) of when the chat completion chunk was created.
+          example: 1677652345
+        model:
+          type: string
+          description: The model used for the completion.
+          example: gemini-2.0-flash
+        choices:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChatCompletionChoiceDelta'
+        usage:
+          $ref: '#/components/schemas/UsageStatistics'
+          description: |
+            Usage statistics are typically sent in the final chunk of a stream.
+            May be omitted in intermediate chunks.
+        thought_summary:
+          type: string
+          description: Summary of the model's thoughts if `include_thoughts` was enabled, possibly in the final chunk.
+
+    ChatCompletionChoiceDelta: # Choice schema for streaming responses
+      type: object
+      properties:
+        index:
+          type: integer
+          description: The index of the choice in the list of choices.
+          example: 0
+        delta:
+          type: object
+          description: Partial chat completion message (only content and role are typically present in delta).
+          properties:
+            role:
+              type: string
+              enum: [user, model, system]
+              description: The role of the author of this message.
+              example: model
+            content:
+              type: string
+              description: The partial content of the message.
+              example: "Artificial"
+        finish_reason:
+          type: string
+          enum: [stop, length, content_filter, tool_calls]
+          description: The reason the model stopped generating tokens. Present in the final chunk.
+          example: stop
+
+    UsageStatistics:
+      type: object
+      properties:
+        prompt_tokens:
+          type: integer
+          description: The number of tokens in the prompt.
+          example: 12
+        completion_tokens:
+          type: integer
+          description: The number of tokens in the generated completion.
+          example: 25
+        total_tokens:
+          type: integer
+          description: The total number of tokens used in the request and response.
+          example: 37
