@@ -1,0 +1,667 @@
+openapi: 3.0.3
+info:
+  title: Gemini API (OpenAI Compatible)
+  version: 1.0.0
+  description: API to access Gemini models via an OpenAI-compatible interface, supporting various generative AI features, including chat completions, image generation, and embeddings.
+servers:
+  - url: https://generativelanguage.googleapis.com/v1beta/openai
+    description: Gemini OpenAI-compatible API Endpoint for Chat, Images, Embeddings
+  - url: https://generativelanguage.googleapis.com
+    description: Gemini OpenAI-compatible API Endpoint for Batch operations
+
+paths:
+  /chat/completions:
+    post:
+      summary: Generates a chat completion using a Gemini model.
+      operationId: createChatCompletion
+      description: |
+        Sends messages to a Gemini model for chat-based completion.
+        Supports various features including reasoning effort, function calling, streaming, and multimodal inputs (image/audio).
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatCompletionRequest'
+      responses:
+        '200':
+          description: Successful chat completion response.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatCompletionResponse'
+            text/event-stream:
+              schema:
+                $ref: '#/components/schemas/ChatCompletionChunk' # For streaming, multiple chunks are sent
+        '400':
+          description: Bad Request - Invalid input or missing parameters.
+        '401':
+          description: Unauthorized - Missing or invalid API key.
+        '500':
+          description: Internal Server Error.
+
+  /images/generations:
+    post:
+      summary: Generates an image based on a text prompt.
+      operationId: createImageGeneration
+      description: |
+        Requests a Gemini-powered image generation model (e.g., Imagen 3.0) to create an image.
+        Note: Image generation is typically available in paid tiers.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ImageGenerationRequest'
+      responses:
+        '200':
+          description: Successfully generated images.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImageGenerationResponse'
+        '400':
+          description: Bad Request - Invalid prompt or model.
+        '401':
+          description: Unauthorized - Missing or invalid API key.
+        '500':
+          description: Internal Server Error.
+
+  /embeddings:
+    post:
+      summary: Generates embeddings for a given text input.
+      operationId: createEmbedding
+      description: |
+        Measures the relatedness of text strings by generating a numerical vector representation (embedding).
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmbeddingRequest'
+      responses:
+        '200':
+          description: Successfully generated embeddings.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmbeddingResponse'
+        '400':
+          description: Bad Request - Invalid input or model.
+        '401':
+          description: Unauthorized - Missing or invalid API key.
+        '500':
+          description: Internal Server Error.
+
+  /v1/batches: # This path is relative to the second server URL (https://generativelanguage.googleapis.com)
+    post:
+      summary: Creates a batch job for processing multiple requests asynchronously.
+      operationId: createBatchJob
+      description: |
+        Submits a JSONL file containing multiple API requests to be processed in a batch.
+        The input_file_id refers to a previously uploaded file.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BatchCreationRequest'
+      responses:
+        '200':
+          description: Successfully created a batch job.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BatchJob'
+        '400':
+          description: Bad Request - Invalid batch request parameters.
+        '401':
+          description: Unauthorized - Missing or invalid API key.
+        '500':
+          description: Internal Server Error.
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: API Key # The Gemini API key is used directly as a bearer token
+
+  schemas:
+    # --- Chat Completion Schemas ---
+    ChatMessage:
+      type: object
+      required:
+        - role
+        - content
+      properties:
+        role:
+          type: string
+          enum: [ "user", "model", "system", "tool" ]
+          description: The role of the author of this message. 'model' is used for Gemini's responses, 'system' for instructions, 'user' for user input, 'tool' for tool outputs.
+        content:
+          oneOf:
+            - type: string
+              description: The text content of the message.
+            - type: array
+              items:
+                $ref: '#/components/schemas/MessageContentPart'
+              description: An array of content parts for multimodal messages.
+
+    MessageContentPart:
+      type: object
+      required:
+        - type
+      properties:
+        type:
+          type: string
+          enum: [ "text", "image_url", "input_audio", "function_call" ]
+          description: The type of the content part.
+        text:
+          type: string
+          description: Text content. Required if type is 'text'.
+        image_url:
+          $ref: '#/components/schemas/ImageUrlObject'
+          description: Image URL content. Required if type is 'image_url'.
+        input_audio:
+          $ref: '#/components/schemas/InputAudioObject'
+          description: Audio input content. Required if type is 'input_audio'.
+        function_call:
+          $ref: '#/components/schemas/FunctionCall'
+          description: Function call object. Required if type is 'function_call'.
+
+    ImageUrlObject:
+      type: object
+      required:
+        - url
+      properties:
+        url:
+          type: string
+          format: uri
+          description: Either a URL (http(s)://, data:image/jpeg;base64,) or a base64 encoded image data.
+          example: data:image/jpeg;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=
+
+    InputAudioObject:
+      type: object
+      required:
+        - data
+        - format
+      properties:
+        data:
+          type: string
+          description: Base64 encoded audio data.
+          example: aW5wdXRfYXVkaW9fZGF0YV9oZXJl
+        format:
+          type: string
+          enum: [ "wav", "mp3", "ogg", "flac" ] # Common audio formats
+          description: The format of the audio data.
+          example: wav
+
+    Tool:
+      type: object
+      required:
+        - type
+        - function
+      properties:
+        type:
+          type: string
+          enum: [ "function" ]
+          description: The type of the tool. Currently, only 'function' is supported.
+        function:
+          $ref: '#/components/schemas/FunctionDefinition'
+
+    FunctionDefinition:
+      type: object
+      required:
+        - name
+        - parameters
+      properties:
+        name:
+          type: string
+          description: The name of the function to call.
+          example: get_weather
+        description:
+          type: string
+          description: A description of what the function does, used by the model to choose when and how to call the function.
+          example: Get the current weather in a given location
+        parameters:
+          type: object
+          description: The parameters the function accepts, described as a JSON Schema object.
+          example:
+            type: object
+            properties:
+              location:
+                type: string
+                description: The city and state, e.g. Chicago, IL
+              unit:
+                type: string
+                enum: ["celsius", "fahrenheit"]
+            required: ["location"]
+
+    FunctionCall:
+      type: object
+      required:
+        - name
+        - arguments
+      properties:
+        name:
+          type: string
+          description: The name of the function to call.
+          example: get_weather
+        arguments:
+          type: object
+          description: The arguments to call the function with, as generated by the model in JSON format.
+          example:
+            location: Chicago, IL
+            unit: celsius
+
+    ThinkingConfig:
+      type: object
+      properties:
+        include_thoughts:
+          type: boolean
+          description: Whether to include the model's thoughts in the response.
+          example: true
+
+    GoogleExtraBody:
+      type: object
+      properties:
+        thinking_config:
+          $ref: '#/components/schemas/ThinkingConfig'
+          description: Configuration for enabling thought generation for Gemini 2.5 models.
+
+    ChatCompletionRequest:
+      type: object
+      required:
+        - model
+        - messages
+      properties:
+        model:
+          type: string
+          description: ID of the model to use. E.g., `gemini-2.0-flash`, `gemini-2.5-flash`.
+          example: gemini-2.0-flash
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChatMessage'
+          description: A list of messages comprising the conversation so far.
+        reasoning_effort:
+          type: string
+          enum: [ "none", "low", "medium", "high" ]
+          description: |
+            Controls how much the model will "think" for Gemini 2.5 models.
+            Maps to 1,024, 8,192, and 24,576 tokens for low, medium, and high respectively.
+            Cannot be used at the same time as `extra_body.google.thinking_config`.
+          example: low
+        extra_body:
+          type: object
+          properties:
+            google:
+              $ref: '#/components/schemas/GoogleExtraBody'
+          description: |
+            Additional fields specific to the Gemini API, such as thinking configuration.
+            Cannot be used at the same time as `reasoning_effort`.
+        stream:
+          type: boolean
+          description: If set, partial message deltas will be sent, like in ChatGPT.
+          default: false
+          example: true
+        tools:
+          type: array
+          items:
+            $ref: '#/components/schemas/Tool'
+          description: A list of tools the model may call.
+        tool_choice:
+          oneOf:
+            - type: string
+              enum: [ "none", "auto", "required" ]
+              description: 'none' means the model will not call a function. 'auto' means the model can pick. 'required' means the model must call a function.
+            - type: object
+              description: Forces the model to call a specific function.
+              properties:
+                type:
+                  type: string
+                  enum: [ "function" ]
+                  example: function
+                function:
+                  type: object
+                  required:
+                    - name
+                  properties:
+                    name:
+                      type: string
+                      description: The name of the function to force call.
+                      example: get_weather
+          example: auto
+
+    ChatCompletionResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          description: A unique identifier for the chat completion.
+          example: chatcmpl-8YkQj0Y5G1G5Z7X1V0L8K4J9H2I6M3N
+        object:
+          type: string
+          description: The object type, which is always `chat.completion`.
+          enum: [ "chat.completion" ]
+          example: chat.completion
+        created:
+          type: integer
+          description: The Unix timestamp (in seconds) of when the chat completion was created.
+          example: 1677652392
+        model:
+          type: string
+          description: The model used for the chat completion.
+          example: gemini-2.0-flash
+        choices:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChatCompletionChoice'
+        usage:
+          $ref: '#/components/schemas/CompletionUsage'
+        system_fingerprint:
+          type: string
+          description: This fingerprint represents the backend configuration that served the request.
+          example: fp_298ad8e5c2
+
+    ChatCompletionChoice:
+      type: object
+      properties:
+        index:
+          type: integer
+          description: The index of the choice in the list of choices.
+          example: 0
+        message:
+          $ref: '#/components/schemas/ChatMessage'
+          description: A chat completion message generated by the model.
+        logprobs:
+          type: object # Not detailed in prompt, typically for log probability info
+          nullable: true
+        finish_reason:
+          type: string
+          enum: [ "stop", "length", "tool_calls", "content_filter", "function_call", "other" ]
+          description: The reason the model stopped generating tokens.
+          example: stop
+
+    ChatCompletionChunk:
+      type: object
+      description: A partial chat completion delta, sent when `stream` is true.
+      properties:
+        id:
+          type: string
+          example: chatcmpl-8YkQj0Y5G1G5Z7X1V0L8K4J9H2I6M3N
+        object:
+          type: string
+          enum: [ "chat.completion.chunk" ]
+          example: chat.completion.chunk
+        created:
+          type: integer
+          example: 1677652392
+        model:
+          type: string
+          example: gemini-2.0-flash
+        choices:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChatCompletionChunkChoice'
+        usage:
+          $ref: '#/components/schemas/CompletionUsage' # Usage can also be sent in chunks
+
+    ChatCompletionChunkChoice:
+      type: object
+      properties:
+        index:
+          type: integer
+          example: 0
+        delta:
+          type: object
+          properties:
+            role:
+              type: string
+              enum: [ "user", "assistant", "system", "tool" ]
+            content:
+              oneOf:
+                - type: string
+                - type: array
+                  items:
+                    $ref: '#/components/schemas/MessageContentPart'
+            tool_calls:
+              type: array
+              items:
+                $ref: '#/components/schemas/ToolCall'
+        finish_reason:
+          type: string
+          enum: [ "stop", "length", "tool_calls", "content_filter", "function_call", "other" ]
+          example: stop
+
+    ToolCall:
+      type: object
+      required:
+        - id
+        - type
+        - function
+      properties:
+        id:
+          type: string
+          description: The ID of the tool call.
+          example: call_abc123
+        type:
+          type: string
+          enum: [ "function" ]
+          description: The type of the tool.
+          example: function
+        function:
+          $ref: '#/components/schemas/FunctionCall'
+
+    CompletionUsage:
+      type: object
+      properties:
+        prompt_tokens:
+          type: integer
+          description: The number of tokens in the prompt.
+          example: 10
+        completion_tokens:
+          type: integer
+          description: The number of tokens in the generated completion.
+          example: 20
+        total_tokens:
+          type: integer
+          description: The total number of tokens used in the request (prompt + completion).
+          example: 30
+
+    # --- Image Generation Schemas ---
+    ImageGenerationRequest:
+      type: object
+      required:
+        - model
+        - prompt
+      properties:
+        model:
+          type: string
+          description: The model to use for image generation. E.g., `imagen-3.0-generate-002`.
+          example: imagen-3.0-generate-002
+        prompt:
+          type: string
+          description: A text description of the desired image(s).
+          example: a portrait of a sheepadoodle wearing a cape
+        response_format:
+          type: string
+          enum: [ "url", "b64_json" ]
+          description: The format in which the generated images are returned.
+          default: b64_json # Example showed b64_json
+          example: b64_json
+        n:
+          type: integer
+          format: int32
+          description: The number of images to generate. Must be between 1 and 10.
+          default: 1
+          minimum: 1
+          maximum: 10
+          example: 1
+
+    ImageGenerationResponse:
+      type: object
+      properties:
+        created:
+          type: integer
+          description: The Unix timestamp (in seconds) of when the image generation was created.
+          example: 1677652392
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/ImageData'
+
+    ImageData:
+      type: object
+      properties:
+        url:
+          type: string
+          format: uri
+          description: The URL of the generated image. Present if `response_format` is `url`.
+          example: https://example.com/image.png
+        b64_json:
+          type: string
+          description: The base64-encoded JSON of the generated image. Present if `response_format` is `b64_json`.
+          example: iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=
+
+    # --- Embedding Schemas ---
+    EmbeddingRequest:
+      type: object
+      required:
+        - input
+        - model
+      properties:
+        input:
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                type: string
+          description: Input text to embed, encoded as a string or array of strings.
+          example: Your text string goes here
+        model:
+          type: string
+          description: ID of the model to use. E.g., `gemini-embedding-001`.
+          example: gemini-embedding-001
+
+    EmbeddingResponse:
+      type: object
+      properties:
+        object:
+          type: string
+          description: The object type, which is always `list`.
+          enum: [ "list" ]
+          example: list
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/EmbeddingData'
+        model:
+          type: string
+          description: The model used to generate the embeddings.
+          example: gemini-embedding-001
+        usage:
+          $ref: '#/components/schemas/CompletionUsage' # Reusing usage schema
+
+    EmbeddingData:
+      type: object
+      properties:
+        object:
+          type: string
+          description: The object type, which is always `embedding`.
+          enum: [ "embedding" ]
+          example: embedding
+        embedding:
+          type: array
+          items:
+            type: number
+            format: float
+          description: The embedding vector, which is a list of floats.
+          example: [0.1, 0.2, 0.3, 0.4, 0.5] # Truncated for brevity
+        index:
+          type: integer
+          description: The index of the embedding in the list.
+          example: 0
+
+    # --- Batch API Schemas ---
+    BatchCreationRequest:
+      type: object
+      required:
+        - input_file_id
+        - endpoint
+      properties:
+        input_file_id:
+          type: string
+          description: The ID of an uploaded file that contains requests for the batch.
+          example: file-abc123def456
+        endpoint:
+          type: string
+          description: The endpoint to be used for all requests in the batch, e.g., `/v1/chat/completions`.
+          example: /v1/chat/completions
+        completion_window:
+          type: string
+          enum: [ "24h" ]
+          description: The time frame within which the batch should be completed.
+          default: 24h
+          example: 24h
+
+    BatchJob:
+      type: object
+      properties:
+        id:
+          type: string
+          description: The ID of the batch job.
+          example: batch_abc123def456
+        object:
+          type: string
+          enum: [ "batch" ]
+          example: batch
+        created_at:
+          type: integer
+          description: The Unix timestamp (in seconds) for when the batch job was created.
+          example: 1677652392
+        status:
+          type: string
+          enum: [ "validating", "failed", "completed", "in_progress", "finalizing", "canceled", "cancelling" ]
+          description: The current status of the batch job.
+          example: in_progress
+        input_file_id:
+          type: string
+          description: The ID of the input file for the batch job.
+          example: file-abc123def456
+        output_file_id:
+          type: string
+          nullable: true
+          description: The ID of the file containing the outputs for successful requests.
+          example: file-xyz789uvw012
+        error_file_id:
+          type: string
+          nullable: true
+          description: The ID of the file containing the errors for failed requests.
+          example: file-pqr345stu678
+        completed_at:
+          type: integer
+          nullable: true
+          description: The Unix timestamp (in seconds) for when the batch job was completed.
+        failed_at:
+          type: integer
+          nullable: true
+          description: The Unix timestamp (in seconds) for when the batch job failed.
+        expires_at:
+          type: integer
+          nullable: true
+          description: The Unix timestamp (in seconds) for when the batch job will expire.
+        completion_window:
+          type: string
+          enum: [ "24h" ]
+          description: The time frame within which the batch should be completed.
+          example: 24h
